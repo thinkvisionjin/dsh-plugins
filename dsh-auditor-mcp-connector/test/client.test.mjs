@@ -176,7 +176,7 @@ test('客户端入口不依赖 Host 版本特有的 Store、Runtime 或 UI Primi
   assert.doesNotMatch(source, /require\("@deepseek-ai\/dsh-client-(?:store|runtime|ui-primitives|ui-settings)/);
 });
 
-test('内置弹框 Store 实现标准快照、订阅与动作 contract', async () => {
+test('内置 Store 实现标准快照、订阅与动作 contract', async () => {
   const plugin = await loadClient();
   const { ctx, registrations } = clientContext();
   plugin.apply(ctx);
@@ -185,20 +185,21 @@ test('内置弹框 Store 实现标准快照、订阅与动作 contract', async (
   let changes = 0;
   const unsubscribe = instance.subscribe(() => { changes += 1; });
 
-  assert.deepEqual(instance.getSnapshot(), { open: false, detailOpen: false, sidebarVisible: true });
-  instance.actions.open();
+  assert.deepEqual(instance.getSnapshot(), { detailOpen: false, sidebarVisible: true });
   instance.actions.detailOpened();
-  assert.deepEqual(instance.getSnapshot(), { open: true, detailOpen: true, sidebarVisible: true });
-  instance.actions.close();
-  assert.deepEqual(instance.getSnapshot(), { open: false, detailOpen: false, sidebarVisible: true });
+  assert.deepEqual(instance.getSnapshot(), { detailOpen: true, sidebarVisible: true });
+  instance.actions.setSidebarVisible(false);
+  assert.deepEqual(instance.getSnapshot(), { detailOpen: true, sidebarVisible: false });
+  instance.actions.detailClosed();
+  assert.deepEqual(instance.getSnapshot(), { detailOpen: false, sidebarVisible: false });
   assert.equal(changes, 3);
   unsubscribe();
-  instance.actions.open();
+  instance.actions.detailOpened();
   assert.equal(changes, 3);
   assert.doesNotThrow(() => instance.clearPersisted());
 });
 
-test('设置 scope 控制侧边栏可见性并注册同一弹框的快捷入口', async () => {
+test('设置 scope 控制侧边栏菜单入口可见性', async () => {
   const plugin = await loadClient();
   const settings = mutableSettingsScope({
     status: 'ready',
@@ -224,13 +225,13 @@ test('设置 scope 控制侧边栏可见性并注册同一弹框的快捷入口'
   assert.equal(bindSpec.namespace, 'mcp-connector');
   assert.deepEqual(bindSpec.decode({ showSidebarEntry: false }), { showSidebarEntry: false });
   assert.equal(bindSpec.decode({}), undefined);
-  const overlay = registrations.get('main');
+  const panel = registrations.get('main');
   const settingsCard = registrations.get('settings.plugin.item');
   assert.ok(settingsCard, '应在原生插件配置页注册 MCP连接器卡片');
   assert.equal(settingsCard.options.key, 'mcp-connector');
-  assert.equal(settingsCard.options.store, overlay.options.store, '快捷按钮必须复用现有弹框 Store');
+  assert.equal(settingsCard.options.store, panel.options.store, '设置卡片必须复用同一 Store');
 
-  const store = overlay.options.store.create();
+  const store = panel.options.store.create();
   assert.equal(store.getSnapshot().sidebarVisible, false);
   settings.scope.publish({
     ...settings.scope.getSnapshot(),
@@ -309,133 +310,60 @@ test('设置卡片可隐藏入口、恢复默认并直接打开连接器整页',
   assert.deepEqual(calls.at(-1), ['selectPanel', 'mcp-connector']);
 });
 
-test('隐藏状态不创建侧边栏 Portal 或观察器', async () => {
-  let observers = 0;
-  const plugin = await loadClient({
-    jsxRuntime: {
-      jsx(type, props) { return { type, props }; },
-      jsxs(type, props) { return { type, props }; },
-    },
-    reactApi: {
-      useState(initial) { return [initial, () => {}]; },
-      useEffect(start) { start(); },
-    },
-    windowExtras: {
-      MutationObserver: class {
-        constructor() { observers += 1; }
-        observe() {}
-        disconnect() {}
-      },
-    },
-  });
+test('侧边栏只有一个入口：sidebar.panellist，不再注册 footer.action', async () => {
+  const plugin = await loadClient();
   const { ctx, registrations } = clientContext();
   plugin.apply(ctx);
-  const entry = registrations.get('sidebar.footer.action');
-  const rendered = entry.component({
-    wide: true,
-    useStore: (select) => select({ open: false, sidebarVisible: false }),
-    actions: { open() {} },
-  });
-  assert.equal(rendered, null);
-  assert.equal(observers, 0);
+
+  const entry = registrations.get('sidebar.panellist');
+  assert.ok(entry, '应在左侧栏面板图标菜单注册入口');
+  assert.equal(entry.options.id, 'mcp-connector');
+  assert.equal(entry.options.label(), 'MCP连接器');
+  assert.equal(registrations.has('sidebar.footer.action'), false, '不得再注册第二个侧边栏入口');
+  assert.equal(registrations.get('main').options.key, 'mcp-connector', '菜单入口与整页必须同键');
 });
 
-test('侧栏入口使用公开插槽托管，并具备工作区上方 Portal 与底部降级', async () => {
-  let hookState = null;
-  let topMount = null;
-  let portal = null;
-  const workspaceSlot = { parentElement: null };
-  const parent = {
-    querySelector(selector) {
-      return selector === '[data-mcp-connector-top-mount="true"]' ? topMount : null;
-    },
-    insertBefore(node, before) {
-      topMount = node;
-      node.nextSibling = before;
-    },
-  };
-  workspaceSlot.parentElement = parent;
-  const clientDocument = {
-    querySelector(selector) {
-      return selector === '[data-slot="sidebar.workspaces"]' ? workspaceSlot : null;
-    },
-    createElement(tag) {
-      return { tag, dataset: {}, nextSibling: null, remove() {} };
-    },
-    head: { append() {} },
-    body: {},
-  };
-  class MutationObserverStub {
-    observe() {}
-    disconnect() {}
-  }
-  const jsxRuntime = {
-    jsx(type, props) { return { type, props }; },
-    jsxs(type, props) { return { type, props }; },
-  };
-  const plugin = await loadClient({
-    clientDocument,
-    jsxRuntime,
-    reactApi: {
-      useState(initial) {
-        if (hookState === null) hookState = initial;
-        return [hookState, (value) => {
-          hookState = typeof value === 'function' ? value(hookState) : value;
-        }];
-      },
-      useEffect(start) { start(); },
-    },
-    reactDomApi: {
-      createPortal(node, target) {
-        portal = { node, target };
-        return portal;
-      },
-    },
-    windowExtras: { MutationObserver: MutationObserverStub },
+test('关闭“在侧边栏显示 MCP连接器”即撤销菜单入口注册', async () => {
+  const settings = mutableSettingsScope({
+    status: 'ready',
+    value: { showSidebarEntry: true },
+    base: { showSidebarEntry: true },
+    user: { showSidebarEntry: true },
+    writable: true,
+    mode: 'host',
+    revision: 1,
   });
-  const { ctx, registrations } = clientContext();
+  const { ctx, registrations } = clientContext({ settingsScope: { bind: () => settings.scope } });
+  // 记录 sidebar.panellist 的注册与撤销，验证开关切换会真正增删这条槽位注册。
+  const live = new Set();
+  ctx.slots.inject = (name, register) => {
+    if (name !== 'sidebar.panellist') {
+      register();
+      return () => {};
+    }
+    register();
+    live.add(name);
+    return () => { live.delete(name); };
+  };
+  const plugin = await loadClient();
   plugin.apply(ctx);
-  const entry = registrations.get('sidebar.footer.action');
-  assert.ok(entry, '应使用公开 footer list slot 托管入口生命周期');
+  assert.equal(live.has('sidebar.panellist'), true, '默认显示菜单入口');
 
-  const props = {
-    wide: true,
-    useStore: (select) => select({ open: false }),
-    actions: { open() {} },
-  };
-  const fallback = entry.component(props);
-  assert.equal(fallback.props['aria-label'], 'MCP连接器', '首次定位前应保留 footer 降级入口');
-  assert.equal(fallback.props.children[0].props.className, 'mcpConnectorLauncherIcon');
-  assert.equal(fallback.props.children[0].props['aria-hidden'], true);
-  assert.equal(fallback.props.children[1].props.className, 'mcpConnectorLauncherLabel');
-  assert.equal(fallback.props.children[1].props.children, 'MCP连接器');
-  assert.equal(topMount.dataset.mcpConnectorTopMount, 'true');
-  assert.equal(topMount.nextSibling, workspaceSlot, '挂载点应紧邻工作区 slot 之前');
+  settings.scope.publish({
+    ...settings.scope.getSnapshot(),
+    value: { showSidebarEntry: false },
+    user: { showSidebarEntry: false },
+    revision: 2,
+  });
+  assert.equal(live.has('sidebar.panellist'), false, '关闭后应撤销注册');
 
-  entry.component(props);
-  assert.equal(portal.target, topMount, '定位成功后应 Portal 到顶部挂载点');
-  assert.equal(portal.node.props.className, 'mcpConnectorTopEntry');
-  entry.component({ ...props, wide: false });
-  const collapsed = portal.node.props.children;
-  assert.equal(collapsed.props['aria-label'], 'MCP连接器');
-  assert.equal(collapsed.props.children[1], null, '折叠侧栏仅显示图标但保留可访问名称');
-
-  const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
-  assert.doesNotMatch(source, /hHd-Xa_/, '不得依赖 DSH 构建生成的 CSS 类名');
-});
-
-test('侧栏入口悬停不描边，键盘焦点仍可见，布局不使用负边距或文本空格对齐（#86）', async () => {
-  const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
-  const css = source.split('const sidebarCss = `')[1].split('`;')[0];
-  const rule = (selector) => css.slice(css.indexOf(selector + ' {')).split('}')[0];
-  assert.match(rule('.mcpConnectorLauncher:hover'), /outline: none/);
-  assert.doesNotMatch(rule('.mcpConnectorLauncher:hover'), /outline: 2px/);
-  assert.match(rule('.mcpConnectorLauncher:focus-visible'), /outline: 2px solid currentColor/);
-  assert.match(rule('.mcpConnectorLauncher:focus-visible'), /outline-offset: -2px/);
-  assert.match(rule('.mcpConnectorLauncher'), /padding: 0 var\(--dsh-sidebar-inline-padding, 12px\)/);
-  assert.match(rule('.mcpConnectorLauncher'), /gap: 8px/);
-  assert.doesNotMatch(css, /calc\(100% \+|margin: 4px -2px/);
-  assert.match(rule('.mcpConnectorLauncherIcon'), /flex: 0 0 20px/);
+  settings.scope.publish({
+    ...settings.scope.getSnapshot(),
+    value: { showSidebarEntry: true },
+    user: { showSidebarEntry: true },
+    revision: 3,
+  });
+  assert.equal(live.has('sidebar.panellist'), true, '重新打开后应恢复注册');
 });
 
 test('示例 Prompt 写入新会话草稿后再导航', async () => {
@@ -443,7 +371,7 @@ test('示例 Prompt 写入新会话草稿后再导航', async () => {
   const { ctx, registrations, calls } = clientContext();
   plugin.apply(ctx);
   const overlay = registrations.get('main');
-  assert.ok(overlay, '应注册连接器弹框');
+  assert.ok(overlay, '应注册连接器整页');
   const props = overlay.options.inject();
   await props.startPromptSession('查询企查查的对外投资布局');
   assert.deepEqual(calls, [
@@ -685,15 +613,16 @@ test('市场标题展示安装版本，并通过 Provider 适配层一键更新'
   assert.match(source, /新版本处于发布安全等待期（约 24 小时）/);
   assert.match(source, /立即更新（跳过等待）/);
   assert.match(source, /manualUpgradeCommand/);
-  assert.match(source, /--config\.minimumReleaseAge=0/);
-  assert.match(source, /复制升级命令/);
+  assert.match(source, /复制仓库地址/);
+  assert.match(source, /打开仓库/);
   assert.match(source, /\[data-slot="sidebar\.settings"\]/);
   assert.match(source, /\^\(\\u63d2\\u4ef6\\u5e02\\u573a\|Plugin Market\|Plugin Marketplace\)\$/);
-  assert.match(source, /window\.open\(NPM_PACKAGE_URL, "_blank", "noopener,noreferrer"\)/);
+  assert.match(source, /window\.open\(PLUGIN_REPOSITORY_URL, "_blank", "noopener,noreferrer"\)/);
+  assert.match(source, /thinkvisionjin\/dsh-plugins/, '人工更新入口应指向本插件仓库');
   assert.doesNotMatch(source, /registry\.npmjs\.org/, '客户端不应跨域请求版本源');
 });
 
-test('DSH Desktop 设置中没有插件市场时回退到 npm 更新说明', async () => {
+test('DSH Desktop 设置中没有插件市场时回退到插件仓库说明', async () => {
   let settingsClicks = 0;
   const opened = [];
   const settingsTrigger = { click() { settingsClicks += 1; } };
@@ -724,7 +653,7 @@ test('DSH Desktop 设置中没有插件市场时回退到 npm 更新说明', asy
   assert.equal(closes, 1);
   assert.equal(settingsClicks, 1);
   assert.deepEqual(opened, [[
-    'https://www.npmjs.com/package/dsh-auditor-mcp-connector', '_blank', 'noopener,noreferrer',
+    'https://github.com/thinkvisionjin/dsh-plugins/tree/main/dsh-auditor-mcp-connector', '_blank', 'noopener,noreferrer',
   ]]);
 });
 
@@ -867,7 +796,7 @@ test('已安装的新版本在旧进程中渲染重启提示而非升级命令',
   assert.ok(descendants.some((node) => node.props?.children === 'v0.2.31 已安装，重启后生效'));
   assert.ok(descendants.some((node) => node.props?.children === '请重启 DSH'));
   assert.equal(descendants.some((node) => node.type === 'code'), false);
-  assert.equal(descendants.some((node) => node.props?.children === '复制升级命令'), false);
+  assert.equal(descendants.some((node) => node.props?.children === '复制仓库地址'), false);
 });
 
 test('能力探测通过后渲染一键更新，并使用 Provider 广告的同源端点', async () => {
@@ -1099,12 +1028,13 @@ test('Provider 广告跨源端点时拒绝一键更新并安全降级', async ()
 
   effects.length = 0;
   let tree = render();
-  const command = 'dsh plugin --profile web add --config.minimumReleaseAge=0 dsh-auditor-mcp-connector@0.2.25';
+  // 本插件不在 npm 上：人工更新入口是插件仓库地址，而不是 npm 安装命令。
+  const command = 'https://github.com/thinkvisionjin/dsh-plugins/tree/main/dsh-auditor-mcp-connector';
   assert.ok(descendants(tree).some((node) => node.type === 'code'
     && node.props?.children === command));
   const copyButton = descendants(tree).find((node) => node.type === 'button'
-    && node.props?.children === '复制升级命令');
-  assert.ok(copyButton, '无可信 Provider 时应提供升级命令复制按钮');
+    && node.props?.children === '复制仓库地址');
+  assert.ok(copyButton, '无可信 Provider 时应提供仓库地址复制按钮');
   copyButton.props.onClick();
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(copied, [command]);

@@ -23,6 +23,8 @@ import {
   DEFAULT_REFRESH_RETRY_BASE_MS,
   DEFAULT_REFRESH_RETRY_MAX_MS,
   DEFAULT_CATALOG_TTL_MS,
+  DEFAULT_UPDATE_SOURCE_FALLBACK_URL,
+  DEFAULT_UPDATE_SOURCE_URL,
 } from './constants.js';
 import { defineConnectorDomain, ConnectionStore, GrantStore, CatalogStore, SnapshotStore, GovernanceStore, ConnectionScopeStore, ToolCatalogStore } from './stores.js';
 import { normalizeConnectorDescriptor, normalizeConnectionRecord } from './schema.js';
@@ -124,12 +126,22 @@ export const Config = z.object({
   account: z.string().default(DEFAULT_ACCOUNT),
   /** 是否在 DSH 主侧边栏显示 MCP连接器快捷入口 */
   showSidebarEntry: z.boolean().default(true),
+  /**
+   * 自更新检查源：本插件所在仓库内 package.json 的地址。
+   * 本插件不发布到 npm，版本以本仓库为准；可填 jsDelivr 目录、GitHub 目录页
+   * 或 package.json 完整地址（见 version-status.js 的 resolveUpdateSourceUrl）。
+   */
+  updateSourceUrl: z.string().default(DEFAULT_UPDATE_SOURCE_URL),
+  /** 自更新回退源（raw.githubusercontent），用于识别 CDN 缓存尚未同步的版本。 */
+  updateSourceFallbackUrl: z.string().default(DEFAULT_UPDATE_SOURCE_FALLBACK_URL),
 });
 
 export async function apply(ctx, config) {
   installConnectorSettings(ctx, config);
   const logger = ctx.logger('mcp-connector');
   const versionStatusService = createVersionStatusService({
+    updateSourceUrl: config.updateSourceUrl,
+    updateSourceFallbackUrl: config.updateSourceFallbackUrl,
     timeoutMs: config.requestTimeoutMs,
     logger,
   });

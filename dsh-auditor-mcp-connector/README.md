@@ -36,7 +36,7 @@ OAuth 是否可用取决于服务商的客户端注册、账号权限与授权�
 dsh plugin --profile web add dsh-mcp-connector
 ```
 
-安装或升级后完全重启 DeepSeek Harness Desktop 或 `dsh web`，然后打开左侧「🧩 MCP连接器」；也可从“设置 → 插件 → 插件配置 → MCP连接器”直接打开。
+安装或升级后完全重启 DeepSeek Harness Desktop 或 `dsh web`，然后点击左侧栏「面板图标菜单」里的 🧩 MCP连接器；也可从“设置 → 插件 → 插件配置 → MCP连接器”直接打开。连接器在主内容区以整页展示，不再弹出窗口。
 
 首次使用建议依次确认：连接已保存且范围正确 → “工具”页能找到预期工具与来源 → 在正常 DSH 会话中通过 Host 审批链完成一次服务商许可的只读调用。缓存可见不等于当前服务可调用。
 
@@ -61,8 +61,8 @@ dsh plugin --profile web add dsh-mcp-connector
 
 ## 功能
 
-- 左侧主导航入口：目标位置为“新会话”下方、“工作区/会话列表”上方；若 DSH DOM 结构不兼容，自动回退到底部公开插槽。
-- 侧边栏入口可按当前 profile 隐藏；隐藏后仍可从“设置 → 插件 → 插件配置 → MCP连接器”临时打开现有连接器弹框，用完即关。
+- 唯一入口：左侧栏「面板图标菜单」（`sidebar.panellist`）里的 🧩 MCP连接器，与主内容区整页（`main` keyed slot）同键。早期版本额外注册的 `sidebar.footer.action` 快捷入口及其 Portal 已移除，避免侧边栏出现两个同名入口。
+- 侧边栏入口可按当前 profile 隐藏（撤销该槽位注册，菜单行随之消失）；隐藏后仍可从“设置 → 插件 → 插件配置 → MCP连接器”打开本页。
 - 图形化市场：默认“全部”按推荐与 9 类业务分类分章节展示，每章先展示 4 张并可展开；分类栏固定可见，单分类页展示全部卡片。
 - 图形化添加：手动 HTTP/stdio、`mcpServers` JSON、连接器描述 URL 三种入口，失败时保留表单并给出修复建议。
 - 连接器详情：精选 Prompt 优先展示，点击可带入 DSH 新会话；工具按 Server 分组，支持描述、搜索、参数详情和独立滚动。实时发现失败时显示带时间/陈旧标记的最后成功工具缓存。
@@ -119,7 +119,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/duhu2000/dsh-mcp-connector/m
 
 ## 使用
 
-1. 点击左侧“🧩 MCP连接器”，或从“设置 → 插件 → 插件配置 → MCP连接器”点击“打开 MCP连接器”。
+1. 点击左侧栏面板菜单里的“🧩 MCP连接器”，或从“设置 → 插件 → 插件配置 → MCP连接器”点击“打开 MCP连接器”。
 2. 在市场中选择连接器，确认“当前项目”或“所有项目（全局）”，再完成授权或配置。
 3. 打开卡片详情，可点击示例 Prompt 的发送按钮，在当前工作区创建/复用空白会话并写入草稿。
 4. 在“已安装”或对话工具中查看、停用、恢复或断开连接。
@@ -163,7 +163,9 @@ Bundle 默认配置位于 `cordis.patch.yml`：
 
 `catalogUrl` 默认通过 jsDelivr CDN 读取公共 [dsh-mcp-connector-registry](https://github.com/duhu2000/dsh-mcp-connector-registry)，支持 ETag/TTL 缓存；主源失败时自动尝试 GitHub raw 备用源，再回退到上次缓存或随包内置目录。jsDelivr 的分支 URL 可能存在缓存延迟，因此 Registry 合并后的新卡片不保证秒级出现。需要离线/私有模式时可将 `catalogUrl` 显式设为空字符串；显式配置其他目录 URL 时不会自动切换到公共备用源。
 
-`showSidebarEntry` 默认为 `true`。用户可在 DSH 插件配置页覆盖该值；关闭后只隐藏侧边栏快捷入口，不停用连接器、已连接 MCP Server 或工具。
+`showSidebarEntry` 默认为 `true`。用户可在 DSH 插件配置页覆盖该值；关闭后只撤销侧边栏菜单入口，不停用连接器、已连接 MCP Server 或工具。
+
+`updateSourceUrl` / `updateSourceFallbackUrl` 默认为本插件所在仓库（`thinkvisionjin/dsh-plugins` 子目录）内 `package.json` 的 jsDelivr / raw 地址。本插件不发布到 npm，「检查更新」以本仓库版本为准，不会把上游 `dsh-mcp-connector` 当成可更新版本。
 
 ## 兼容性与责任边界
 

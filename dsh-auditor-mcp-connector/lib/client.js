@@ -22,7 +22,12 @@ window.__ModuleLoader__.load({
 		const WORKSPACE_CONTEXT_RESULT_TYPE = "mcp-connector:workspace-context";
 		const VERSION_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1e3;
 		const VERSION_CHECK_RETRY_MS = 5 * 60 * 1e3;
-		const NPM_PACKAGE_URL = "https://www.npmjs.com/package/dsh-auditor-mcp-connector";
+		/**
+		 * 本插件的源码位置与自更新入口。插件不发布到 npm，「检查更新」以
+		 * cordis.patch.yml 的 updateSourceUrl（本仓库 package.json）为准，
+		 * 人工更新方式是到仓库取回新版本后重跑 install.sh。
+		 */
+		const PLUGIN_REPOSITORY_URL = "https://github.com/thinkvisionjin/dsh-plugins/tree/main/dsh-auditor-mcp-connector";
 		const PLUGIN_PACKAGE_NAME = "dsh-auditor-mcp-connector";
 		const CONNECTOR_SETTINGS_NAMESPACE = "mcp-connector";
 		const SHOW_SIDEBAR_ENTRY_FIELD = "showSidebarEntry";
@@ -42,105 +47,6 @@ window.__ModuleLoader__.load({
 			})
 		]);
 
-		/**
-		 * Desktop 内置的社区插件市场也注册在 sidebar.footer.action。
-		 * 该 list slot 的宿主容器默认横排，会把两个本应占满侧边栏宽度的
-		 * launcher 挤在同一行。覆盖 SlotOutlet 的 display: contents，让所有
-		 * footer action 在 Web 与 Desktop 中都按独立行纵向排列。
-		 */
-		const SIDEBAR_STYLE_ID = "dsh-mcp-connector-sidebar";
-		const sidebarCss = `
-[data-slot="sidebar.footer.action"] {
-	display: flex !important;
-	flex-direction: column;
-	min-width: 0;
-	width: 100%;
-}
-
-.mcpConnectorLauncher {
-	flex: none;
-	display: flex;
-	align-items: center;
-	box-sizing: border-box;
-	width: 100%;
-	height: 42px;
-	margin: 4px 0;
-	padding: 0 var(--dsh-sidebar-inline-padding, 12px);
-	gap: 8px;
-	justify-content: flex-start;
-	overflow: hidden;
-	border: 0;
-	border-radius: 12px;
-	background: transparent;
-	color: inherit;
-	font: inherit;
-	white-space: nowrap;
-	cursor: pointer;
-}
-
-.mcpConnectorLauncher:hover {
-	background: rgba(127, 127, 127, 0.12);
-	outline: none;
-}
-
-.mcpConnectorLauncher:focus-visible {
-	background: rgba(127, 127, 127, 0.12);
-	outline: 2px solid currentColor;
-	outline-offset: -2px;
-}
-
-.mcpConnectorLauncherIcon {
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	flex: 0 0 20px;
-	width: 20px;
-	height: 20px;
-	font-size: 18px;
-	line-height: 1;
-}
-
-.mcpConnectorLauncherLabel {
-	min-width: 0;
-	overflow: hidden;
-	text-overflow: ellipsis;
-}
-
-.mcpConnectorLauncher[data-wide="false"] {
-	width: 36px;
-	height: 36px;
-	margin: 8px 0 10px;
-	padding: 0;
-	justify-content: center;
-	border-radius: 50%;
-}
-
-.mcpConnectorTopMount {
-	flex: none;
-	min-width: 0;
-	width: 100%;
-}
-
-.mcpConnectorTopEntry {
-	box-sizing: border-box;
-	width: 100%;
-	padding-right: var(--dsh-sidebar-inline-padding, 12px);
-}
-
-.mcpConnectorTopEntry .mcpConnectorLauncher {
-	width: 100%;
-	margin: 0 0 8px;
-}
-
-.mcpConnectorTopEntry[data-wide="false"] {
-	width: 36px;
-	padding-right: 0;
-}
-
-.mcpConnectorTopEntry[data-wide="false"] .mcpConnectorLauncher {
-	margin: 0 0 8px;
-}
-`;
 		const PAGE_STYLE_ID = "dsh-mcp-connector-page";
 		/**
 		 * 整页样式：连接器不再是居中弹框，而是主内容区（main keyed slot）里的
@@ -268,11 +174,12 @@ window.__ModuleLoader__.load({
 	color-scheme: light dark;
 }
 .mcpConnectorPanelGlyph {
+	display: block;
+}
+.mcpConnectorMarketGlyph {
 	display: inline-flex;
 	align-items: center;
-	justify-content: center;
-	width: 100%;
-	height: 100%;
+	color: var(--dsw-alias-label-primary, #111827);
 }
 `;
 		const SETTINGS_STYLE_ID = "dsh-mcp-connector-settings";
@@ -433,9 +340,6 @@ window.__ModuleLoader__.load({
 	.mcpConnectorSettingsFooter .mcpConnectorSettingsButton { flex: 1 1 140px; }
 }
 `;
-		const SIDEBAR_WORKSPACES_SELECTOR = '[data-slot="sidebar.workspaces"]';
-		const TOP_MOUNT_SELECTOR = '[data-mcp-connector-top-mount="true"]';
-
 		function installStyles(id, css) {
 			if (document.querySelector(`style[data-plugin="${id}"]`) !== null) return () => {};
 			const style = document.createElement("style");
@@ -445,35 +349,12 @@ window.__ModuleLoader__.load({
 			return () => { style.remove(); };
 		}
 
-		function installSidebarStyles() {
-			return installStyles(SIDEBAR_STYLE_ID, sidebarCss);
-		}
-
 		function installPageStyles() {
 			return installStyles(PAGE_STYLE_ID, pageCss);
 		}
 
 		function installSettingsStyles() {
 			return installStyles(SETTINGS_STYLE_ID, settingsCss);
-		}
-
-		/**
-		 * DSH rc.7 没有公开的「新会话与工作区之间」插槽。插件仍注册在公开的
-		 * footer list slot 中保证生命周期与降级可用，再把实际按钮 Portal 到
-		 * sidebar.workspaces 前。只依赖稳定的 data-slot，不依赖构建生成的 CSS 类名。
-		 */
-		function ensureTopLauncherMount() {
-			const workspaceSlot = document.querySelector(SIDEBAR_WORKSPACES_SELECTOR);
-			const parent = workspaceSlot?.parentElement;
-			if (workspaceSlot === null || parent === null || parent === void 0) return null;
-			let mount = parent.querySelector(TOP_MOUNT_SELECTOR);
-			if (mount === null) {
-				mount = document.createElement("div");
-				mount.dataset.mcpConnectorTopMount = "true";
-				mount.className = "mcpConnectorTopMount";
-			}
-			if (mount.nextSibling !== workspaceSlot) parent.insertBefore(mount, workspaceSlot);
-			return mount;
 		}
 
 		async function fetchVersionStatus(force = false) {
@@ -638,10 +519,18 @@ window.__ModuleLoader__.load({
 			return labels[failure?.code] ?? failure?.message ?? "更新失败";
 		}
 
-		function manualUpgradeCommand(version) {
-			const parsed = parseClientVersion(version);
-			if (parsed === null) return null;
-			return `dsh plugin --profile web add --config.minimumReleaseAge=0 ${PLUGIN_PACKAGE_NAME}@${parsed.normalized}`;
+		/**
+		 * 人工更新目标：本插件不在 npm 上，更新方式是取回本仓库的新版本后重跑
+		 * install.sh，因此这里给出仓库地址而不是 `dsh plugin add <pkg>@<ver>`。
+		 * 返回 null 表示当前没有可展示的新版本。
+		 */
+		function manualUpgradeCommand(versionStatus) {
+			const target = typeof versionStatus?.repositoryUrl === "string" && versionStatus.repositoryUrl !== ""
+				? versionStatus.repositoryUrl
+				: PLUGIN_REPOSITORY_URL;
+			const latest = parseClientVersion(versionStatus?.pendingVersion ?? versionStatus?.latestVersion);
+			if (latest === null) return null;
+			return target;
 		}
 
 		async function copyManualUpgradeCommand(command) {
@@ -649,7 +538,7 @@ window.__ModuleLoader__.load({
 				await window.navigator.clipboard.writeText(command);
 				return true;
 			}
-			window.prompt?.("请复制以下升级命令", command);
+			window.prompt?.("请复制以下地址", command);
 			return false;
 		}
 
@@ -741,7 +630,7 @@ window.__ModuleLoader__.load({
 			const settingsHost = document.querySelector('[data-slot="sidebar.settings"]');
 			const settingsTrigger = settingsHost?.querySelector?.('button[aria-haspopup="dialog"]');
 			if (settingsTrigger === null || settingsTrigger === void 0) {
-				window.open(NPM_PACKAGE_URL, "_blank", "noopener,noreferrer");
+				window.open(PLUGIN_REPOSITORY_URL, "_blank", "noopener,noreferrer");
 				return;
 			}
 			// 整页模式没有可关闭的弹框：先把主面板交还给对话，再打开设置里的市场页。
@@ -763,7 +652,7 @@ window.__ModuleLoader__.load({
 						window.setTimeout(selectMarket, 50);
 						return;
 					}
-					window.open(NPM_PACKAGE_URL, "_blank", "noopener,noreferrer");
+					window.open(PLUGIN_REPOSITORY_URL, "_blank", "noopener,noreferrer");
 				};
 				window.requestAnimationFrame(selectMarket);
 			}, 0);
@@ -776,30 +665,31 @@ window.__ModuleLoader__.load({
 		 */
 		function createMarketViewStore() {
 			let sidebarVisible = true;
-			// 面板是否在前台由 layout 的 activePanelId 决定，store 只镜像它，
-			// 让入口按钮的 aria-expanded 与菜单选中态保持一致。
-			let panelActive = false;
 			const liveActions = new Set();
+			const sidebarVisibilityListeners = new Set();
 			const spec = {
-				init: () => ({ open: panelActive, detailOpen: false, sidebarVisible }),
+				init: () => ({ detailOpen: false, sidebarVisible }),
 				actions: {
-					open: (draft) => { draft.open = true; },
-					close: (draft) => { draft.open = false; draft.detailOpen = false; },
 					detailOpened: (draft) => { draft.detailOpen = true; },
 					detailClosed: (draft) => { draft.detailOpen = false; },
-					setSidebarVisible: (draft, visible) => { draft.sidebarVisible = visible !== false; },
-					setOpen: (draft, value) => { draft.open = value === true; }
+					setSidebarVisible: (draft, visible) => { draft.sidebarVisible = visible !== false; }
 				}
 			};
 			return {
 				spec,
+				/** 当前是否显示侧边栏菜单入口（设置开关的即时值）。 */
+				isSidebarVisible() {
+					return sidebarVisible;
+				},
+				/** 订阅设置开关：入口注册/撤销需要跟着它变化，而不是等组件渲染。 */
+				subscribeSidebarVisible(listener) {
+					sidebarVisibilityListeners.add(listener);
+					return () => { sidebarVisibilityListeners.delete(listener); };
+				},
 				syncSidebarVisible(visible) {
 					sidebarVisible = visible !== false;
 					for (const actions of liveActions) actions.setSidebarVisible(sidebarVisible);
-				},
-				syncOpen(open) {
-					panelActive = open === true;
-					for (const actions of liveActions) actions.setOpen(panelActive);
+					for (const listener of sidebarVisibilityListeners) listener();
 				},
 				create() {
 					let state = spec.init();
@@ -841,11 +731,11 @@ window.__ModuleLoader__.load({
 			if (String(language).toLowerCase().startsWith("en")) {
 				return {
 					title: "MCP Connector",
-					description: "Control how the MCP Connector is opened.",
+					description: "Control the MCP Connector entry in the sidebar.",
 					show: "Show MCP Connector in the sidebar",
-					hint: "Turning this off only hides the shortcut above the workspace list. The MCP Connector icon in the sidebar panel menu stays available.",
-					visible: "The sidebar shortcut is visible.",
-					hidden: "The shortcut is hidden. Open MCP Connector from the sidebar panel menu.",
+					hint: "Turning this off hides the MCP Connector icon in the sidebar panel menu. Settings → Plugins → MCP Connector still opens this page.",
+					visible: "The sidebar entry is visible.",
+					hidden: "The sidebar entry is hidden. Open MCP Connector from the plugin settings page.",
 					readOnly: "This settings page is read-only.",
 					saving: "Saving…",
 					failed: "The setting was not saved. Please try again.",
@@ -857,11 +747,11 @@ window.__ModuleLoader__.load({
 			}
 			return {
 				title: "MCP连接器",
-				description: "控制侧边栏入口和快捷打开方式。",
+				description: "控制侧边栏里的 MCP连接器 入口。",
 				show: "在侧边栏显示 MCP连接器",
-				hint: "关闭后只隐藏工作区上方的入口；左侧面板菜单里的 MCP连接器 图标始终可用。",
+				hint: "关闭后左侧栏面板菜单里的 MCP连接器 图标会隐藏；仍可从「设置 → 插件 → MCP连接器」打开本页。",
 				visible: "侧边栏入口当前显示。",
-				hidden: "入口已隐藏，可从左侧面板菜单打开 MCP连接器。",
+				hidden: "入口已隐藏，可从设置页的 MCP连接器 卡片打开本页。",
 				readOnly: "当前设置页只读。",
 				saving: "正在保存…",
 				failed: "设置未保存，请重试。",
@@ -1174,7 +1064,7 @@ window.__ModuleLoader__.load({
 						if (disposed) return;
 						setVersionStatus(status);
 						setVersionCheckBusy(status.checking === true);
-						setVersionCheckFailed(!status.checking && status.sources?.npm?.ok !== true);
+						setVersionCheckFailed(!status.checking && status.sources?.cdn?.ok !== true);
 						if (status.checking) {
 							schedule(1e3);
 							return;
@@ -1530,7 +1420,7 @@ window.__ModuleLoader__.load({
 						]
 					});
 				}
-				const command = manualUpgradeCommand(versionStatus?.latestVersion);
+				const command = manualUpgradeCommand(versionStatus);
 				if (command !== null) {
 					return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 						className: "mcpConnectorManualUpdate",
@@ -1547,17 +1437,17 @@ window.__ModuleLoader__.load({
 									copyManualUpgradeCommand(command).then((copied) => {
 										if (copied) setManualCommandCopied(true);
 									}, (error) => {
-										console.warn("[mcp-connector] copy upgrade command failed:", error);
-										window.prompt?.("请复制以下升级命令", command);
+										console.warn("[mcp-connector] copy update address failed:", error);
+										window.prompt?.("请复制以下地址", command);
 									});
 								},
-								children: manualCommandCopied ? "已复制" : "复制升级命令"
+								children: manualCommandCopied ? "已复制" : "复制仓库地址"
 							}),
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
 								type: "button",
 								className: "mcpConnectorUpdateButton mcpConnectorUpdateSecondary",
-								onClick: () => window.open(NPM_PACKAGE_URL, "_blank", "noopener,noreferrer"),
-								children: "查看 npm"
+								onClick: () => window.open(command, "_blank", "noopener,noreferrer"),
+								children: "打开仓库"
 							})
 						]
 					});
@@ -1590,7 +1480,12 @@ window.__ModuleLoader__.load({
 							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 							style: { display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", minWidth: 0, flex: 1 },
 								children: [
-									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { style: { fontSize: 22 }, "aria-hidden": true, children: "\u{1F9E9}" }),
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+										className: "mcpConnectorMarketGlyph",
+										"aria-hidden": true,
+										// 与左侧栏菜单入口同一个字形，保证页内与菜单图标一致。
+										children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(ConnectorPanelGlyph, { size: 22 })
+									}),
 									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { id: "mcp-connector-market-title", className: "mcpConnectorMarketTitle", style: { fontSize: 18, fontWeight: 600 }, children: "MCP连接器" }),
 									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 										className: "mcpConnectorVersion",
@@ -1614,10 +1509,10 @@ window.__ModuleLoader__.load({
 											"data-tone": "error",
 											children: "暂时无法确认 npm 最新版本，请重试"
 										}),
-									versionStatus?.releasePending && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+									versionStatus?.pendingVersion != null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 										className: "mcpConnectorVersion",
-										title: "GitHub Release 已发布，等待 npm 同步后即可更新",
-										children: `v${versionStatus.release.version} 正在同步`
+										title: "仓库已发布新版本，等待 jsDelivr CDN 缓存同步后即可更新",
+										children: `v${versionStatus.pendingVersion} 正在同步`
 									})
 								]
 							}),
@@ -1678,60 +1573,6 @@ window.__ModuleLoader__.load({
 			});
 		}
 
-		/** 左栏入口：固定图标列与文字间距，键盘焦点与鼠标悬停分别处理。 */
-		function SidebarEntry(props) {
-			const { wide, useStore, openPanel = () => {} } = props;
-			const open = useStore((state) => state.open);
-			const visible = useStore((state) => state.sidebarVisible !== false);
-			const [topMount, setTopMount] = (0, react.useState)(null);
-			(0, react.useEffect)(() => {
-				if (!visible) {
-					setTopMount(null);
-					return void 0;
-				}
-				const removeStyles = installSidebarStyles();
-				let disposed = false;
-				const ownedMounts = new Set();
-				const syncMount = () => {
-					if (disposed) return;
-					const mount = ensureTopLauncherMount();
-					if (mount !== null) ownedMounts.add(mount);
-					setTopMount((current) => current === mount ? current : mount);
-				};
-				syncMount();
-				let observer = null;
-				if (typeof window.MutationObserver === "function" && document.body !== null) {
-					observer = new window.MutationObserver(syncMount);
-					observer.observe(document.body, { childList: true, subtree: true });
-				}
-				return () => {
-					disposed = true;
-					observer?.disconnect();
-					for (const mount of ownedMounts) mount.remove();
-					removeStyles();
-				};
-			}, [visible]);
-			if (!visible) return null;
-			const launcher = /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
-				type: "button",
-				className: "mcpConnectorLauncher",
-				"data-wide": wide,
-				"aria-label": "MCP连接器",
-				"aria-expanded": open,
-				onClick: () => { openPanel(); },
-				children: [
-					(0, react_jsx_runtime.jsx)("span", { className: "mcpConnectorLauncherIcon", "aria-hidden": true, children: "🧩" }),
-					wide ? (0, react_jsx_runtime.jsx)("span", { className: "mcpConnectorLauncherLabel", children: "MCP连接器" }) : null
-				]
-			});
-			if (topMount === null || typeof react_dom.createPortal !== "function") return launcher;
-			return react_dom.createPortal(/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-				className: "mcpConnectorTopEntry",
-				"data-wide": wide,
-				children: launcher
-			}), topMount);
-		}
-
 		/**
 		 * 选中/离开连接器整页。
 		 *
@@ -1752,16 +1593,7 @@ window.__ModuleLoader__.load({
 				const marketView = createMarketViewStore();
 				ctx.effect(() => installPageStyles(), "mcp-connector: page styles");
 				installClientSettings(ctx, marketView);
-				const openPanel = () => selectConnectorPanel(ctx, true);
 				const closePanel = () => selectConnectorPanel(ctx, false);
-
-				// 主面板选中态 → store.open：入口 aria-expanded 与菜单选中态保持一致。
-				ctx.effect(() => {
-					const info = ctx.layout.panelInfo;
-					const sync = () => { marketView.syncOpen(info.getSnapshot().activePanelId === CONNECTOR_PANEL_ID); };
-					sync();
-					return info.subscribe(sync);
-				}, "mcp-connector: panel selection mirror");
 
 				// 整页：注册到 main keyed slot，键与左侧菜单图标 id 相同。
 				ctx.slots.inject("main", () => {
@@ -1778,28 +1610,38 @@ window.__ModuleLoader__.load({
 					}, ConnectorPage);
 				});
 
-				// 左侧栏「面板图标菜单」：宿主负责整行按钮与选中态，点击即切到本页。
-				ctx.slots.inject("sidebar.panellist", () => {
-					console.log('[mcp-connector] registering sidebar.panellist slot');
-					return ctx.slots.register({
-						name: "sidebar.panellist",
-						id: CONNECTOR_PANEL_ID,
-						order: 20,
-						label: () => "MCP连接器"
-					}, ConnectorPanelGlyph);
-				});
-
-				// 左栏：公开 footer slot 托管生命周期；组件会 Portal 到工作区列表上方。
-				ctx.slots.inject("sidebar.footer.action", () => {
-					console.log('[mcp-connector] registering sidebar.footer.action slot');
-					return ctx.slots.register({
-						name: "sidebar.footer.action",
-						id: "mcp-connector",
-						order: 0,
-						store: marketView,
-						inject: () => ({ openPanel })
-					}, SidebarEntry);
-				});
+				// 唯一的侧边栏入口：左侧栏「面板图标菜单」（sidebar.panellist）。
+				// 宿主负责整行按钮、可访问名称与选中态，点击即切到整页。
+				// 旧版还额外注册了 sidebar.footer.action 并把按钮 Portal 到工作区
+				// 列表上方，导致侧边栏出现两个同名入口，现已移除。
+				// 「设置 → 插件 → MCP连接器」的开关在这里生效：关闭即撤销注册，
+				// 菜单行随之消失；仍可用设置卡片里的「打开 MCP连接器」进入本页。
+				ctx.effect(() => {
+					let disposeEntry = null;
+					const sync = () => {
+						const wanted = marketView.isSidebarVisible();
+						if (wanted === (disposeEntry !== null)) return;
+						if (wanted) {
+							console.log('[mcp-connector] registering sidebar.panellist slot');
+							disposeEntry = ctx.slots.inject("sidebar.panellist", () => ctx.slots.register({
+								name: "sidebar.panellist",
+								id: CONNECTOR_PANEL_ID,
+								order: 20,
+								label: () => "MCP连接器"
+							}, ConnectorPanelGlyph));
+						} else {
+							disposeEntry();
+							disposeEntry = null;
+						}
+					};
+					sync();
+					const unsubscribe = marketView.subscribeSidebarVisible(sync);
+					return () => {
+						unsubscribe();
+						disposeEntry?.();
+						disposeEntry = null;
+					};
+				}, "mcp-connector: panel menu entry");
 				console.log('[mcp-connector] client apply() completed');
 			} catch (error) {
 				console.error('[mcp-connector] client apply() failed:', error);

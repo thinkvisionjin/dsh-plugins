@@ -6,6 +6,10 @@
       name: 'dsh-auditor-mcp-connector'
       config:
         catalogUrl: 'https://cdn.jsdelivr.net/gh/duhu2000/dsh-mcp-connector-registry@main/catalog.json'
+        # 自更新检查源：本插件所在仓库（上海市审计科学研究所维护分支）内的 package.json。
+        # 也可填 GitHub 目录页：https://github.com/thinkvisionjin/dsh-plugins/tree/main/dsh-auditor-mcp-connector
+        updateSourceUrl: 'https://cdn.jsdelivr.net/gh/thinkvisionjin/dsh-plugins@main/dsh-auditor-mcp-connector/package.json'
+        updateSourceFallbackUrl: 'https://raw.githubusercontent.com/thinkvisionjin/dsh-plugins/main/dsh-auditor-mcp-connector/package.json'
         persistSecrets: true
         entryPrefix: 'mcp'
         refreshSkewMs: 300000
